@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react'
+import checklistLogo from './assets/CheckListLogo.png'
 import './App.css'
-
-const emptyTask = {
-  title: '',
-  description: '',
-}
 
 function App() {
   const [tasks, setTasks] = useState([])
-  const [form, setForm] = useState(emptyTask)
+  const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -48,27 +44,50 @@ function App() {
     loadTasks()
   }, [])
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-
-    if (!form.title.trim()) {
-      return
-    }
-
+  async function createTask() {
     try {
       const task = await request('/api/tasks', {
         method: 'POST',
         body: JSON.stringify({
-          title: form.title.trim(),
-          description: form.description.trim(),
+          title: '',
+          description: '',
         }),
       })
 
       setTasks((currentTasks) => [...currentTasks, task])
-      setForm(emptyTask)
+      setSelectedTaskId(task.id)
       setError('')
     } catch {
       setError('Task could not be created.')
+    }
+  }
+
+  async function updateTaskText(task, changes) {
+    const updatedDraft = {
+      ...task,
+      ...changes,
+    }
+
+    setTasks((currentTasks) =>
+      currentTasks.map((item) =>
+        item.id === task.id ? { ...item, ...changes } : item,
+      ),
+    )
+
+    try {
+      const updatedTask = await request(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updatedDraft),
+      })
+
+      setTasks((currentTasks) =>
+        currentTasks.map((item) =>
+          item.id === task.id ? updatedTask : item,
+        ),
+      )
+      setError('')
+    } catch {
+      setError('Task could not be updated.')
     }
   }
 
@@ -92,6 +111,10 @@ function App() {
   }
 
   async function deleteTask(taskId) {
+    if (taskId === null) {
+      return
+    }
+
     try {
       await request(`/api/tasks/${taskId}`, {
         method: 'DELETE',
@@ -100,94 +123,128 @@ function App() {
       setTasks((currentTasks) =>
         currentTasks.filter((task) => task.id !== taskId),
       )
+      setSelectedTaskId(null)
       setError('')
     } catch {
       setError('Task could not be deleted.')
     }
   }
 
-  const openTasks = tasks.filter((task) => !task.completed).length
-  const completedTasks = tasks.length - openTasks
-
   return (
     <main className="dashboard">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">Personal dashboard</p>
-          <h1>Tasks</h1>
-        </div>
-        <div className="stats" aria-label="Task statistics">
-          <span>{tasks.length} total</span>
-          <span>{openTasks} open</span>
-          <span>{completedTasks} done</span>
-        </div>
-      </header>
-
-      <section className="task-panel" aria-labelledby="new-task-heading">
-        <h2 id="new-task-heading">New task</h2>
-        <form className="task-form" onSubmit={handleSubmit}>
-          <input
-            type="text"
-            value={form.title}
-            onChange={(event) =>
-              setForm((currentForm) => ({
-                ...currentForm,
-                title: event.target.value,
-              }))
-            }
-            placeholder="Title"
-            aria-label="Task title"
-          />
-          <input
-            type="text"
-            value={form.description}
-            onChange={(event) =>
-              setForm((currentForm) => ({
-                ...currentForm,
-                description: event.target.value,
-              }))
-            }
-            placeholder="Description"
-            aria-label="Task description"
-          />
-          <button type="submit">Add</button>
-        </form>
-        {error && <p className="error">{error}</p>}
+      <section className="dashboard-main" aria-label="Dashboard content">
+        <p className="eyebrow">Personal dashboard</p>
+        <h1>Dashboard</h1>
       </section>
 
-      <section className="task-list" aria-label="Tasks">
-        {loading && <p className="empty-state">Loading tasks...</p>}
+      <aside className="todo-window" aria-label="Todo list">
+        <header className="todo-titlebar">
+          <div className="todo-brand">
+            <img src={checklistLogo} alt="" />
+            <span>Todo-List</span>
+          </div>
+        </header>
 
-        {!loading && tasks.length === 0 && (
-          <p className="empty-state">No tasks yet.</p>
-        )}
-
-        {tasks.map((task) => (
-          <article
-            className={task.completed ? 'task-item completed' : 'task-item'}
-            key={task.id}
+        <div className="todo-toolbar">
+          <button type="button" aria-label="Create task" onClick={createTask}>
+            +
+          </button>
+          <button
+            type="button"
+            aria-label="Remove selected task"
+            onClick={() => deleteTask(selectedTaskId)}
           >
-            <label className="task-check">
-              <input
-                type="checkbox"
-                checked={task.completed}
-                onChange={() => toggleTask(task)}
-              />
-              <span>
-                <strong>{task.title}</strong>
-                {task.description && <small>{task.description}</small>}
-              </span>
-            </label>
-            <button
-              className="delete-button"
-              type="button"
-              onClick={() => deleteTask(task.id)}
+            -
+          </button>
+          <button type="button">Done</button>
+          <button type="button">Storage</button>
+        </div>
+
+        <section className="task-list" aria-label="Tasks">
+          {loading && <p className="empty-state">Loading tasks...</p>}
+
+          {!loading && tasks.length === 0 && (
+            <p className="empty-state">No tasks yet.</p>
+          )}
+
+          {tasks.map((task) => (
+            <article
+              className={[
+                'task-item',
+                task.completed ? 'completed' : '',
+                selectedTaskId === task.id ? 'selected' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              key={task.id}
+              onClick={() => setSelectedTaskId(task.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  setSelectedTaskId(task.id)
+                }
+              }}
+              role="button"
+              tabIndex={0}
             >
-              Delete
-            </button>
-          </article>
-        ))}
-      </section>
+              <div className="task-check">
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => {
+                    setSelectedTaskId(task.id)
+                    toggleTask(task)
+                  }}
+                />
+                <span>
+                  <input
+                    className="task-title-input"
+                    type="text"
+                    value={task.title}
+                    onChange={(event) =>
+                      setTasks((currentTasks) =>
+                        currentTasks.map((item) =>
+                          item.id === task.id
+                            ? { ...item, title: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    onBlur={(event) =>
+                      updateTaskText(task, { title: event.target.value })
+                    }
+                    onClick={(event) => event.stopPropagation()}
+                    placeholder="Title"
+                    aria-label="Task title"
+                  />
+                  <textarea
+                    className="task-description-input"
+                    value={task.description}
+                    onChange={(event) =>
+                      setTasks((currentTasks) =>
+                        currentTasks.map((item) =>
+                          item.id === task.id
+                            ? { ...item, description: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    onBlur={(event) =>
+                      updateTaskText(task, { description: event.target.value })
+                    }
+                    onClick={(event) => event.stopPropagation()}
+                    placeholder="Description"
+                    aria-label="Task description"
+                    rows={5}
+                  />
+                </span>
+              </div>
+            </article>
+          ))}
+          {error && <p className="error">{error}</p>}
+        </section>
+
+      </aside>
     </main>
   )
 }
