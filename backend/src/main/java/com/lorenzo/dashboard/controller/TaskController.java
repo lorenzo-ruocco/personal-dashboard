@@ -51,4 +51,10 @@ public class TaskController {
     public void deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
     }
+
+    @PostMapping("/cleanup-completed")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void cleanupCompletedTasks() {
+        taskService.deleteCompletedTasks();
+    }
 }

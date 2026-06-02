@@ -2,6 +2,7 @@ package com.lorenzo.dashboard.service;
 
 import com.lorenzo.dashboard.model.Task;
 import com.lorenzo.dashboard.repository.TaskRepository;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -41,5 +42,10 @@ public class TaskService {
     public void deleteTask(Long id) {
         Task task = getTaskById(id);
         taskRepository.delete(task);
+    }
+
+    @Transactional
+    public void deleteCompletedTasks() {
+        taskRepository.deleteByCompletedTrue();
     }
 }
