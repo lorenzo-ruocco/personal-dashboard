@@ -2,23 +2,67 @@
 
 Lokales Dashboard mit Wetter, Aktienindizes, Todo-Liste, Sticky Notes und Linksammlung.
 
-## Starten
+## Ein-Server-Betrieb
 
-Backend in einem CMD-Fenster starten:
+Das React-Frontend wird als statische Dateien in Spring Boot eingebettet. Im Alltag muss danach nur noch das Backend laufen.
+
+Frontend nach Aenderungen bauen:
+
+```cmd
+cd /d <projektordner>\frontend
+npm run build
+```
+
+Dadurch werden die Dateien nach `<projektordner>\backend\src\main\resources\static` geschrieben.
+
+Backend starten:
 
 ```cmd
 cd /d <projektordner>\backend
 mvnw.cmd spring-boot:run
 ```
 
-Frontend in einem zweiten CMD-Fenster starten:
+Oder aus dem Projektordner:
+
+```cmd
+start-dashboard.bat
+```
+
+Danach im Browser oeffnen:
+
+```text
+http://localhost:8080/
+```
+
+## Automatisch Starten
+
+Damit das Dashboard nach der Windows-Anmeldung automatisch laeuft, kann `start-dashboard.bat` in der Windows Aufgabenplanung als Aufgabe beim Anmelden gestartet werden.
+
+Empfohlene Einstellung:
+
+- Programm/Skript: `<projektordner>\start-dashboard.bat`
+- Starten in: `<projektordner>`
+- Trigger: Bei Anmeldung
+
+## Entwicklung
+
+Wenn du am Frontend entwickelst und Hot Reload willst, kannst du weiterhin zwei Server starten.
+
+Backend:
+
+```cmd
+cd /d <projektordner>\backend
+mvnw.cmd spring-boot:run
+```
+
+Frontend:
 
 ```cmd
 cd /d <projektordner>\frontend
 npm run dev
 ```
 
-Danach im Browser oeffnen:
+Entwicklungsadresse:
 
 ```text
 http://localhost:5173/
@@ -26,7 +70,7 @@ http://localhost:5173/
 
 ## Ports
 
-- Frontend: `5173`
+- Frontend Entwicklung: `5173`
 - Backend: `8080`
 
 Wenn das Backend mit `Port 8080 was already in use` fehlschlaegt, laeuft bereits ein Java-Prozess auf diesem Port.
