@@ -5,6 +5,8 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Service
@@ -15,6 +17,10 @@ public class OpenTargetService {
 
         if (normalizedTarget.isBlank()) {
             throw new IllegalArgumentException("Target must not be empty");
+        }
+
+        if (isLocalPath(normalizedTarget) && !Files.exists(Path.of(normalizedTarget))) {
+            throw new IllegalArgumentException("Target does not exist: " + normalizedTarget);
         }
 
         if (System.getProperty("os.name").toLowerCase().contains("win")) {
@@ -37,5 +43,12 @@ public class OpenTargetService {
         } catch (IllegalArgumentException | URISyntaxException exception) {
             return normalizedTarget;
         }
+    }
+
+    private boolean isLocalPath(String target) {
+        return target.matches("^[a-zA-Z]:\\\\.*")
+                || target.startsWith("\\\\")
+                || target.startsWith("/")
+                || target.startsWith(".");
     }
 }

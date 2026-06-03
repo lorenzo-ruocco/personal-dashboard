@@ -365,24 +365,9 @@
 .sticky-notes {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 14px;
   position: relative;
-  scrollbar-color: #08317e #1a1d23;
-  scrollbar-width: thin;
-}
-
-.sticky-notes::-webkit-scrollbar {
-  width: 10px;
-}
-
-.sticky-notes::-webkit-scrollbar-track {
-  background: #1a1d23;
-}
-
-.sticky-notes::-webkit-scrollbar-thumb {
-  background: #08317e;
-  border: 2px solid #1a1d23;
 }
 
 .sticky-note {
@@ -786,6 +771,8 @@
   font-weight: 800;
   min-width: 0;
   outline: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   width: 100%;
 }
 

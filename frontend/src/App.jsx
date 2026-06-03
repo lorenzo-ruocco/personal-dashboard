@@ -126,6 +126,30 @@ function getFaviconUrl(target) {
   return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
 }
 
+function getLocalTargetType(target) {
+  const normalizedTarget = getNormalizedTarget(target).toLowerCase()
+
+  if (!normalizedTarget) {
+    return 'FILE'
+  }
+
+  if (normalizedTarget.endsWith('.exe') || normalizedTarget.endsWith('.lnk')) {
+    return 'APP'
+  }
+
+  if (normalizedTarget.includes('\\') || normalizedTarget.includes('/')) {
+    const fileName = normalizedTarget.split(/[\\/]/).pop() ?? ''
+
+    if (fileName.includes('.')) {
+      return 'FILE'
+    }
+
+    return 'DIR'
+  }
+
+  return 'APP'
+}
+
 function normalizeStickyNoteZIndexes(notes) {
   return notes
     .toSorted(
@@ -222,7 +246,14 @@ function App() {
     })
 
     if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
+      const error = new Error(`Request failed with status ${response.status}`)
+      error.status = response.status
+      try {
+        error.body = await response.text()
+      } catch {
+        error.body = ''
+      }
+      throw error
     }
 
     if (response.status === 204) {
@@ -521,7 +552,26 @@ function App() {
         body: JSON.stringify({ target: normalizedTarget }),
       })
       setLinkCollectionError('')
-    } catch {
+    } catch (openTargetError) {
+      if (openTargetError.status === 404) {
+        setLinkCollectionError(
+          'Backend neu starten: Der Datei-/Programm-Oeffner ist noch nicht aktiv.',
+        )
+        return
+      }
+
+      if (openTargetError.status === 400) {
+        setLinkCollectionError(
+          'Pfad nicht gefunden. Kopiere den Pfad erneut aus dem Explorer.',
+        )
+        return
+      }
+
+      if (!openTargetError.status) {
+        setLinkCollectionError('Backend ist nicht erreichbar.')
+        return
+      }
+
       setLinkCollectionError('Dateipfad oder Programm konnte nicht geoeffnet werden.')
     }
   }
@@ -1303,13 +1353,16 @@ function App() {
                               onClick={() => openLinkTileTarget(tile.target)}
                               disabled={!normalizedTarget}
                             >
-                              <span aria-hidden="true">FILE</span>
+                              <span aria-hidden="true">
+                                {getLocalTargetType(tile.target)}
+                              </span>
                             </button>
                           )}
                           <div className="link-tile-fields">
                             <input
                               type="text"
                               value={tile.title}
+                              title={tile.title}
                               onChange={(event) =>
                                 setLinkTiles((currentTiles) =>
                                   currentTiles.map((currentTile) =>
@@ -1333,6 +1386,7 @@ function App() {
                             <input
                               type="text"
                               value={tile.target}
+                              title={tile.target}
                               onChange={(event) =>
                                 setLinkTiles((currentTiles) =>
                                   currentTiles.map((currentTile) =>
