@@ -22,8 +22,11 @@ public class StickyNote {
 
     private long zIndex;
 
+    private String color;
+
     public StickyNote() {
         this.text = "";
+        this.color = "yellow";
     }
 
     public Long getId() {
@@ -64,5 +67,13 @@ public class StickyNote {
 
     public void setZIndex(long zIndex) {
         this.zIndex = zIndex;
+    }
+
+    public String getColor() {
+        return color == null || color.isBlank() ? "yellow" : color;
+    }
+
+    public void setColor(String color) {
+        this.color = color == null || color.isBlank() ? "yellow" : color;
     }
 }

@@ -35,6 +35,7 @@ public class StickyNoteService {
         stickyNote.setX(updatedStickyNote.getX());
         stickyNote.setY(updatedStickyNote.getY());
         stickyNote.setZIndex(updatedStickyNote.getZIndex());
+        stickyNote.setColor(updatedStickyNote.getColor());
 
         return stickyNoteRepository.save(stickyNote);
     }

@@ -39,6 +39,92 @@ const marketFlagCodes = {
 
 const legacyStickyNotesStorageKey = 'dashboard-sticky-notes'
 const stickyNoteDragZIndex = 10000
+const stickyNoteColorOptions = [
+  { id: 'yellow', label: 'Gelbe Notiz' },
+  { id: 'blue', label: 'Blaue Notiz' },
+  { id: 'green', label: 'Gruene Notiz' },
+  { id: 'red', label: 'Rote Notiz' },
+]
+const stickyNoteColorIds = stickyNoteColorOptions.map((color) => color.id)
+const defaultLinkCollection = [
+  {
+    name: 'Privat',
+    tiles: [
+      { title: 'Gmail', target: 'https://mail.google.com' },
+      { title: 'Kalender', target: 'https://calendar.google.com' },
+      { title: 'Google Drive', target: 'https://drive.google.com' },
+    ],
+  },
+  {
+    name: 'Studium',
+    tiles: [
+      { title: 'Moodle', target: 'https://moodle.org' },
+      { title: 'Google Scholar', target: 'https://scholar.google.com' },
+      { title: 'Overleaf', target: 'https://www.overleaf.com' },
+    ],
+  },
+  {
+    name: 'Arbeit',
+    tiles: [
+      { title: 'Outlook', target: 'https://outlook.office.com' },
+      { title: 'Microsoft Teams', target: 'https://teams.microsoft.com' },
+      { title: 'GitHub', target: 'https://github.com' },
+    ],
+  },
+]
+
+function getStickyNoteColor(color) {
+  return stickyNoteColorIds.includes(color) ? color : 'yellow'
+}
+
+function getNormalizedTarget(target) {
+  return (target ?? '').trim()
+}
+
+function getLinkUrl(target) {
+  const normalizedTarget = getNormalizedTarget(target)
+
+  if (!normalizedTarget) {
+    return ''
+  }
+
+  if (/^https?:\/\//i.test(normalizedTarget)) {
+    return normalizedTarget
+  }
+
+  if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(normalizedTarget)) {
+    return `https://${normalizedTarget}`
+  }
+
+  return ''
+}
+
+function getTileHref(target) {
+  const linkUrl = getLinkUrl(target)
+
+  if (linkUrl) {
+    return linkUrl
+  }
+  return ''
+}
+
+function getFaviconUrl(target) {
+  const linkUrl = getLinkUrl(target)
+
+  if (!linkUrl) {
+    return ''
+  }
+
+  let hostname = ''
+
+  try {
+    hostname = new URL(linkUrl).hostname
+  } catch {
+    return ''
+  }
+
+  return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
+}
 
 function normalizeStickyNoteZIndexes(notes) {
   return notes
@@ -48,6 +134,7 @@ function normalizeStickyNoteZIndexes(notes) {
     )
     .map((note, index) => ({
       ...note,
+      color: getStickyNoteColor(note.color),
       zIndex: index + 1,
     }))
 }
@@ -110,6 +197,8 @@ function App() {
   const [leavingTaskIds, setLeavingTaskIds] = useState([])
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [stickyNotes, setStickyNotes] = useState([])
+  const [linkCategories, setLinkCategories] = useState([])
+  const [linkTiles, setLinkTiles] = useState([])
   const [marketIndices, setMarketIndices] = useState([])
   const [marketStatus, setMarketStatus] = useState('Märkte werden geladen...')
   const [weather, setWeather] = useState(null)
@@ -117,6 +206,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pinboardError, setPinboardError] = useState('')
+  const [linkCollectionError, setLinkCollectionError] = useState('')
   const [draggingNoteId, setDraggingNoteId] = useState(null)
   const leavingTimeouts = useRef({})
   const pinboardBodyRef = useRef(null)
@@ -172,6 +262,7 @@ function App() {
               request('/api/sticky-notes', {
                 method: 'POST',
                 body: JSON.stringify({
+                  color: getStickyNoteColor(note.color),
                   text: note.text ?? '',
                   x: note.x ?? 14 + (index % 3) * 154,
                   y: note.y ?? 14 + Math.floor(index / 3) * 164,
@@ -206,11 +297,18 @@ function App() {
   }
 
   async function saveNormalizedStickyNoteZIndexes(originalNotes, normalizedNotes) {
-    const originalZIndexes = new Map(
-      originalNotes.map((note) => [note.id, Number(note.zIndex) || 0]),
+    const originalNotesById = new Map(
+      originalNotes.map((note) => [note.id, note]),
     )
     const notesToSave = normalizedNotes.filter(
-      (note) => originalZIndexes.get(note.id) !== note.zIndex,
+      (note) => {
+        const originalNote = originalNotesById.get(note.id)
+
+        return (
+          Number(originalNote?.zIndex) !== note.zIndex ||
+          originalNote?.color !== note.color
+        )
+      },
     )
 
     if (notesToSave.length === 0) {
@@ -227,6 +325,207 @@ function App() {
     )
   }
 
+  async function loadLinkCollection() {
+    try {
+      const [categories, tiles] = await Promise.all([
+        request('/api/link-categories'),
+        request('/api/link-tiles'),
+      ])
+      setLinkCollectionError('')
+
+      if (categories.length === 0 && tiles.length === 0) {
+        await migrateDefaultLinkCollection()
+        return
+      }
+
+      setLinkCategories(categories)
+      setLinkTiles(tiles)
+    } catch {
+      setLinkCollectionError('Linksammlung konnte nicht geladen werden.')
+    }
+  }
+
+  async function migrateDefaultLinkCollection() {
+    const createdCategories = []
+    const createdTiles = []
+
+    for (const [categoryIndex, category] of defaultLinkCollection.entries()) {
+      const createdCategory = await request('/api/link-categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: category.name,
+          sortOrder: categoryIndex + 1,
+        }),
+      })
+      createdCategories.push(createdCategory)
+
+      for (const [tileIndex, tile] of category.tiles.entries()) {
+        const createdTile = await request('/api/link-tiles', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...tile,
+            categoryId: createdCategory.id,
+            sortOrder: tileIndex + 1,
+          }),
+        })
+        createdTiles.push(createdTile)
+      }
+    }
+
+    setLinkCategories(createdCategories)
+    setLinkTiles(createdTiles)
+  }
+
+  async function createLinkCategory() {
+    const categoryDraft = {
+      name: '',
+      sortOrder: linkCategories.length + 1,
+    }
+
+    try {
+      const createdCategory = await request('/api/link-categories', {
+        method: 'POST',
+        body: JSON.stringify(categoryDraft),
+      })
+      setLinkCategories((currentCategories) => [
+        ...currentCategories,
+        createdCategory,
+      ])
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kategorie konnte nicht erstellt werden.')
+    }
+  }
+
+  async function updateLinkCategory(category, changes) {
+    const updatedDraft = {
+      ...category,
+      ...changes,
+    }
+
+    setLinkCategories((currentCategories) =>
+      currentCategories.map((currentCategory) =>
+        currentCategory.id === category.id ? updatedDraft : currentCategory,
+      ),
+    )
+
+    try {
+      const updatedCategory = await request(
+        `/api/link-categories/${category.id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(updatedDraft),
+        },
+      )
+      setLinkCategories((currentCategories) =>
+        currentCategories.map((currentCategory) =>
+          currentCategory.id === category.id ? updatedCategory : currentCategory,
+        ),
+      )
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kategorie konnte nicht gespeichert werden.')
+    }
+  }
+
+  async function deleteLinkCategory(categoryId) {
+    try {
+      await request(`/api/link-categories/${categoryId}`, {
+        method: 'DELETE',
+      })
+      setLinkCategories((currentCategories) =>
+        currentCategories.filter((category) => category.id !== categoryId),
+      )
+      setLinkTiles((currentTiles) =>
+        currentTiles.filter((tile) => tile.categoryId !== categoryId),
+      )
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kategorie konnte nicht geloescht werden.')
+    }
+  }
+
+  async function createLinkTile(categoryId) {
+    const categoryTiles = linkTiles.filter((tile) => tile.categoryId === categoryId)
+    const tileDraft = {
+      categoryId,
+      title: '',
+      target: '',
+      sortOrder: categoryTiles.length + 1,
+    }
+
+    try {
+      const createdTile = await request('/api/link-tiles', {
+        method: 'POST',
+        body: JSON.stringify(tileDraft),
+      })
+      setLinkTiles((currentTiles) => [...currentTiles, createdTile])
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kachel konnte nicht erstellt werden.')
+    }
+  }
+
+  async function updateLinkTile(tile, changes) {
+    const updatedDraft = {
+      ...tile,
+      ...changes,
+    }
+
+    setLinkTiles((currentTiles) =>
+      currentTiles.map((currentTile) =>
+        currentTile.id === tile.id ? updatedDraft : currentTile,
+      ),
+    )
+
+    try {
+      const updatedTile = await request(`/api/link-tiles/${tile.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updatedDraft),
+      })
+      setLinkTiles((currentTiles) =>
+        currentTiles.map((currentTile) =>
+          currentTile.id === tile.id ? updatedTile : currentTile,
+        ),
+      )
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kachel konnte nicht gespeichert werden.')
+    }
+  }
+
+  async function deleteLinkTile(tileId) {
+    try {
+      await request(`/api/link-tiles/${tileId}`, {
+        method: 'DELETE',
+      })
+      setLinkTiles((currentTiles) =>
+        currentTiles.filter((tile) => tile.id !== tileId),
+      )
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Kachel konnte nicht geloescht werden.')
+    }
+  }
+
+  async function openLinkTileTarget(target) {
+    const normalizedTarget = getNormalizedTarget(target)
+
+    if (!normalizedTarget) {
+      return
+    }
+
+    try {
+      await request('/api/open-target', {
+        method: 'POST',
+        body: JSON.stringify({ target: normalizedTarget }),
+      })
+      setLinkCollectionError('')
+    } catch {
+      setLinkCollectionError('Dateipfad oder Programm konnte nicht geoeffnet werden.')
+    }
+  }
+
   async function loadMarketIndices() {
     try {
       const data = await request('/api/markets/indices')
@@ -240,6 +539,7 @@ function App() {
   useEffect(() => {
     loadTasks()
     loadStickyNotes()
+    loadLinkCollection()
     loadMarketIndices()
   }, [])
 
@@ -493,9 +793,11 @@ function App() {
     }
   }
 
-  async function createStickyNote() {
+  async function createStickyNote(color = 'yellow') {
     const zIndex = getNextStickyNoteZIndex(stickyNotes)
+    const noteColor = getStickyNoteColor(color)
     const noteDraft = {
+      color: noteColor,
       text: '',
       x: 14 + (stickyNotes.length % 3) * 154,
       y: 14 + Math.floor(stickyNotes.length / 3) * 164,
@@ -507,7 +809,13 @@ function App() {
         method: 'POST',
         body: JSON.stringify(noteDraft),
       })
-      setStickyNotes((currentNotes) => [...currentNotes, createdNote])
+      setStickyNotes((currentNotes) => [
+        ...currentNotes,
+        {
+          ...createdNote,
+          color: getStickyNoteColor(createdNote.color ?? noteColor),
+        },
+      ])
       setPinboardError('')
     } catch {
       setPinboardError('Sticky note could not be created.')
@@ -534,7 +842,12 @@ function App() {
       })
       setStickyNotes((currentNotes) =>
         currentNotes.map((currentNote) =>
-          currentNote.id === note.id ? updatedNote : currentNote,
+          currentNote.id === note.id
+            ? {
+                ...updatedNote,
+                color: getStickyNoteColor(updatedNote.color ?? note.color),
+              }
+            : currentNote,
         ),
       )
       setPinboardError('')
@@ -706,14 +1019,20 @@ function App() {
 
         <section className="pinboard" aria-label="Sticky notes">
         <header className="pinboard-header">
-          <h2>Pinwand</h2>
-          <button
-            type="button"
-            aria-label="Create sticky note"
-            onClick={createStickyNote}
-          >
-            +
-          </button>
+          <h2 aria-label="Pinwand"></h2>
+          <div className="sticky-note-color-actions" aria-label="Notizfarbe">
+            {stickyNoteColorOptions.map((color) => (
+              <button
+                className={`sticky-note-color-button sticky-note-color-button--${color.id}`}
+                type="button"
+                aria-label={`${color.label} erstellen`}
+                key={color.id}
+                onClick={() => createStickyNote(color.id)}
+              >
+                +
+              </button>
+            ))}
+          </div>
         </header>
 
         <div className="sticky-notes" ref={pinboardBodyRef}>
@@ -727,6 +1046,7 @@ function App() {
             <article
               className={[
                 'sticky-note',
+                `sticky-note--${getStickyNoteColor(note.color)}`,
                 draggingNoteId === note.id ? 'is-dragging' : '',
               ]
                 .filter(Boolean)
@@ -893,46 +1213,170 @@ function App() {
 
       <section className="links-section" aria-label="Link collection">
         <div className="links-section-inner">
-          <h2>Linksammlung</h2>
+          <header className="links-section-header">
+            <button
+              type="button"
+              aria-label="Kategorie erstellen"
+              onClick={createLinkCategory}
+            >
+              +
+            </button>
+          </header>
+          {linkCollectionError && (
+            <p className="links-error">{linkCollectionError}</p>
+          )}
           <div className="links-grid">
-            <section className="link-column" aria-label="Private links">
-              <h3>Privat</h3>
-              <a href="https://mail.google.com" target="_blank" rel="noreferrer">
-                Gmail
-              </a>
-              <a href="https://calendar.google.com" target="_blank" rel="noreferrer">
-                Kalender
-              </a>
-              <a href="https://drive.google.com" target="_blank" rel="noreferrer">
-                Google Drive
-              </a>
-            </section>
+            {linkCategories.map((category) => {
+              const categoryTiles = linkTiles.filter(
+                (tile) => tile.categoryId === category.id,
+              )
 
-            <section className="link-column" aria-label="Study links">
-              <h3>Studium</h3>
-              <a href="https://moodle.org" target="_blank" rel="noreferrer">
-                Moodle
-              </a>
-              <a href="https://scholar.google.com" target="_blank" rel="noreferrer">
-                Google Scholar
-              </a>
-              <a href="https://www.overleaf.com" target="_blank" rel="noreferrer">
-                Overleaf
-              </a>
-            </section>
+              return (
+                <section
+                  className="link-column"
+                  aria-label={`${category.name || 'Neue Kategorie'} links`}
+                  key={category.id}
+                >
+                  <header className="link-category-header">
+                    <input
+                      type="text"
+                      value={category.name}
+                      onChange={(event) =>
+                        setLinkCategories((currentCategories) =>
+                          currentCategories.map((currentCategory) =>
+                            currentCategory.id === category.id
+                              ? {
+                                  ...currentCategory,
+                                  name: event.target.value,
+                                }
+                              : currentCategory,
+                          ),
+                        )
+                      }
+                      onBlur={(event) =>
+                        updateLinkCategory(category, {
+                          name: event.target.value,
+                        })
+                      }
+                      placeholder="Kategorie"
+                      aria-label="Kategoriename"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Kategorie loeschen"
+                      onClick={() => deleteLinkCategory(category.id)}
+                    >
+                      -
+                    </button>
+                  </header>
 
-            <section className="link-column" aria-label="Work links">
-              <h3>Arbeit</h3>
-              <a href="https://outlook.office.com" target="_blank" rel="noreferrer">
-                Outlook
-              </a>
-              <a href="https://teams.microsoft.com" target="_blank" rel="noreferrer">
-                Microsoft Teams
-              </a>
-              <a href="https://github.com" target="_blank" rel="noreferrer">
-                GitHub
-              </a>
-            </section>
+                  <div className="link-tiles">
+                    {categoryTiles.map((tile) => {
+                      const faviconUrl = getFaviconUrl(tile.target)
+                      const tileHref = getTileHref(tile.target)
+                      const normalizedTarget = getNormalizedTarget(tile.target)
+                      const tileLabel = tile.title || normalizedTarget || 'Kachel'
+                      const launchClassName = [
+                        'link-tile-launch',
+                        normalizedTarget ? '' : 'is-disabled',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+
+                      return (
+                        <article className="link-tile" key={tile.id}>
+                          {tileHref ? (
+                            <a
+                              className={launchClassName}
+                              href={tileHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`${tileLabel} oeffnen`}
+                            >
+                              <img src={faviconUrl} alt="" />
+                            </a>
+                          ) : (
+                            <button
+                              className={launchClassName}
+                              type="button"
+                              aria-label={`${tileLabel} oeffnen`}
+                              onClick={() => openLinkTileTarget(tile.target)}
+                              disabled={!normalizedTarget}
+                            >
+                              <span aria-hidden="true">FILE</span>
+                            </button>
+                          )}
+                          <div className="link-tile-fields">
+                            <input
+                              type="text"
+                              value={tile.title}
+                              onChange={(event) =>
+                                setLinkTiles((currentTiles) =>
+                                  currentTiles.map((currentTile) =>
+                                    currentTile.id === tile.id
+                                      ? {
+                                          ...currentTile,
+                                          title: event.target.value,
+                                        }
+                                      : currentTile,
+                                  ),
+                                )
+                              }
+                              onBlur={(event) =>
+                                updateLinkTile(tile, {
+                                  title: event.target.value,
+                                })
+                              }
+                              placeholder="Name"
+                              aria-label="Kachelname"
+                            />
+                            <input
+                              type="text"
+                              value={tile.target}
+                              onChange={(event) =>
+                                setLinkTiles((currentTiles) =>
+                                  currentTiles.map((currentTile) =>
+                                    currentTile.id === tile.id
+                                      ? {
+                                          ...currentTile,
+                                          target: event.target.value,
+                                        }
+                                      : currentTile,
+                                  ),
+                                )
+                              }
+                              onBlur={(event) =>
+                                updateLinkTile(tile, {
+                                  target: event.target.value,
+                                })
+                              }
+                              placeholder="Link oder Dateipfad"
+                              aria-label="Link oder Dateipfad"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Kachel loeschen"
+                            onClick={() => deleteLinkTile(tile.id)}
+                          >
+                            -
+                          </button>
+                        </article>
+                      )
+                    })}
+                  </div>
+
+                  <button
+                    className="link-tile-create"
+                    type="button"
+                    aria-label="Kachel erstellen"
+                    onClick={() => createLinkTile(category.id)}
+                  >
+                    +
+                  </button>
+                </section>
+              )
+            })}
           </div>
         </div>
       </section>
