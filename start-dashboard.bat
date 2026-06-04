@@ -1,3 +1,4 @@
 @echo off
-cd /d "%~dp0backend"
-call mvnw.cmd spring-boot:run
+set "BACKEND_DIR=%~dp0backend"
+
+powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%BACKEND_DIR%\mvnw.cmd' -ArgumentList 'spring-boot:run' -WorkingDirectory '%BACKEND_DIR%' -WindowStyle Hidden"
