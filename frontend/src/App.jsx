@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import checklistLogo from './assets/CheckListLogo.png'
 import './App.css'
 
@@ -77,6 +77,47 @@ function getStickyNoteColor(color) {
   return stickyNoteColorIds.includes(color) ? color : 'yellow'
 }
 
+function reorderLinkCategories(categories, draggedCategoryId, targetCategoryId, side) {
+  if (draggedCategoryId === targetCategoryId) {
+    return categories
+  }
+
+  const draggedCategory = categories.find(
+    (category) => category.id === draggedCategoryId,
+  )
+
+  if (!draggedCategory) {
+    return categories
+  }
+
+  const categoriesWithoutDragged = categories.filter(
+    (category) => category.id !== draggedCategoryId,
+  )
+  const targetIndex = categoriesWithoutDragged.findIndex(
+    (category) => category.id === targetCategoryId,
+  )
+
+  if (targetIndex === -1) {
+    return categories
+  }
+
+  const insertIndex = side === 'after' ? targetIndex + 1 : targetIndex
+  const reorderedCategories = [
+    ...categoriesWithoutDragged.slice(0, insertIndex),
+    draggedCategory,
+    ...categoriesWithoutDragged.slice(insertIndex),
+  ].map((category, index) => ({
+    ...category,
+    sortOrder: index + 1,
+  }))
+
+  const orderChanged = reorderedCategories.some(
+    (category, index) => category.id !== categories[index]?.id,
+  )
+
+  return orderChanged ? reorderedCategories : categories
+}
+
 function getNormalizedTarget(target) {
   return (target ?? '').trim()
 }
@@ -115,15 +156,12 @@ function getFaviconUrl(target) {
     return ''
   }
 
-  let hostname = ''
-
   try {
-    hostname = new URL(linkUrl).hostname
+    const hostname = new URL(linkUrl).hostname
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
   } catch {
     return ''
   }
-
-  return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
 }
 
 function getLocalTargetType(target) {
@@ -232,11 +270,15 @@ function App() {
   const [pinboardError, setPinboardError] = useState('')
   const [linkCollectionError, setLinkCollectionError] = useState('')
   const [draggingNoteId, setDraggingNoteId] = useState(null)
+  const [draggingCategoryId, setDraggingCategoryId] = useState(null)
   const leavingTimeouts = useRef({})
   const pinboardBodyRef = useRef(null)
   const stickyNoteDrag = useRef(null)
+  const linksGridRef = useRef(null)
+  const linkCategoriesRef = useRef([])
+  const linkCategoryDrag = useRef(null)
 
-  async function request(path, options = {}) {
+  const request = useCallback(async function request(path, options = {}) {
     const response = await fetch(path, {
       headers: {
         'Content-Type': 'application/json',
@@ -261,9 +303,16 @@ function App() {
     }
 
     return response.json()
-  }
+  }, [])
 
-  async function loadTasks() {
+  const cleanupDoneTasks = useCallback(function cleanupDoneTasks() {
+    return fetch('/api/tasks/cleanup-completed', {
+      method: 'POST',
+      keepalive: true,
+    })
+  }, [])
+
+  const loadTasks = useCallback(async function loadTasks() {
     try {
       setError('')
       await cleanupDoneTasks()
@@ -274,9 +323,41 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [cleanupDoneTasks, request])
 
-  async function loadStickyNotes() {
+  const saveNormalizedStickyNoteZIndexes = useCallback(
+    async function saveNormalizedStickyNoteZIndexes(originalNotes, normalizedNotes) {
+      const originalNotesById = new Map(
+        originalNotes.map((note) => [note.id, note]),
+      )
+      const notesToSave = normalizedNotes.filter(
+        (note) => {
+          const originalNote = originalNotesById.get(note.id)
+
+          return (
+            Number(originalNote?.zIndex) !== note.zIndex ||
+            originalNote?.color !== note.color
+          )
+        },
+      )
+
+      if (notesToSave.length === 0) {
+        return
+      }
+
+      await Promise.all(
+        notesToSave.map((note) =>
+          request(`/api/sticky-notes/${note.id}`, {
+            method: 'PUT',
+            body: JSON.stringify(note),
+          }),
+        ),
+      )
+    },
+    [request],
+  )
+
+  const loadStickyNotes = useCallback(async function loadStickyNotes() {
     try {
       const data = await request('/api/sticky-notes')
       setPinboardError('')
@@ -325,58 +406,10 @@ function App() {
     } catch {
       setPinboardError('Sticky notes could not be loaded.')
     }
-  }
+  }, [request, saveNormalizedStickyNoteZIndexes])
 
-  async function saveNormalizedStickyNoteZIndexes(originalNotes, normalizedNotes) {
-    const originalNotesById = new Map(
-      originalNotes.map((note) => [note.id, note]),
-    )
-    const notesToSave = normalizedNotes.filter(
-      (note) => {
-        const originalNote = originalNotesById.get(note.id)
-
-        return (
-          Number(originalNote?.zIndex) !== note.zIndex ||
-          originalNote?.color !== note.color
-        )
-      },
-    )
-
-    if (notesToSave.length === 0) {
-      return
-    }
-
-    await Promise.all(
-      notesToSave.map((note) =>
-        request(`/api/sticky-notes/${note.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(note),
-        }),
-      ),
-    )
-  }
-
-  async function loadLinkCollection() {
-    try {
-      const [categories, tiles] = await Promise.all([
-        request('/api/link-categories'),
-        request('/api/link-tiles'),
-      ])
-      setLinkCollectionError('')
-
-      if (categories.length === 0 && tiles.length === 0) {
-        await migrateDefaultLinkCollection()
-        return
-      }
-
-      setLinkCategories(categories)
-      setLinkTiles(tiles)
-    } catch {
-      setLinkCollectionError('Linksammlung konnte nicht geladen werden.')
-    }
-  }
-
-  async function migrateDefaultLinkCollection() {
+  const migrateDefaultLinkCollection = useCallback(
+    async function migrateDefaultLinkCollection() {
     const createdCategories = []
     const createdTiles = []
 
@@ -405,7 +438,29 @@ function App() {
 
     setLinkCategories(createdCategories)
     setLinkTiles(createdTiles)
-  }
+    },
+    [request],
+  )
+
+  const loadLinkCollection = useCallback(async function loadLinkCollection() {
+    try {
+      const [categories, tiles] = await Promise.all([
+        request('/api/link-categories'),
+        request('/api/link-tiles'),
+      ])
+      setLinkCollectionError('')
+
+      if (categories.length === 0 && tiles.length === 0) {
+        await migrateDefaultLinkCollection()
+        return
+      }
+
+      setLinkCategories(categories)
+      setLinkTiles(tiles)
+    } catch {
+      setLinkCollectionError('Linksammlung konnte nicht geladen werden.')
+    }
+  }, [migrateDefaultLinkCollection, request])
 
   async function createLinkCategory() {
     const categoryDraft = {
@@ -457,6 +512,150 @@ function App() {
     } catch {
       setLinkCollectionError('Kategorie konnte nicht gespeichert werden.')
     }
+  }
+
+  async function saveLinkCategoryOrder(categories) {
+    const originalCategories = linkCategoryDrag.current?.originalCategories ?? []
+    const originalCategoriesById = new Map(
+      originalCategories.map((category) => [category.id, category]),
+    )
+    const categoriesToSave = categories.filter((category) => {
+      const originalCategory = originalCategoriesById.get(category.id)
+
+      return Number(originalCategory?.sortOrder) !== category.sortOrder
+    })
+
+    if (categoriesToSave.length === 0) {
+      return
+    }
+
+    try {
+      await Promise.all(
+        categoriesToSave.map((category) =>
+          request(`/api/link-categories/${category.id}`, {
+            method: 'PUT',
+            body: JSON.stringify(category),
+          }),
+        ),
+      )
+      setLinkCollectionError('')
+    } catch {
+      setLinkCategories(originalCategories)
+      setLinkCollectionError('Kategorie-Reihenfolge konnte nicht gespeichert werden.')
+    }
+  }
+
+  function getLinkCategoryDropTarget(clientX) {
+    const categoryElements = Array.from(
+      linksGridRef.current?.querySelectorAll('.link-column') ?? [],
+    )
+    const draggedCategoryId = linkCategoryDrag.current?.categoryId
+    const targetElements = categoryElements.filter(
+      (element) => Number(element.dataset.categoryId) !== draggedCategoryId,
+    )
+
+    if (targetElements.length === 0) {
+      return null
+    }
+
+    const beforeElement = targetElements.find((element) => {
+      const rect = element.getBoundingClientRect()
+
+      return clientX < rect.left + rect.width / 2
+    })
+
+    if (beforeElement) {
+      return {
+        side: 'before',
+        targetCategoryId: Number(beforeElement.dataset.categoryId),
+      }
+    }
+
+    return {
+      side: 'after',
+      targetCategoryId: Number(
+        targetElements[targetElements.length - 1].dataset.categoryId,
+      ),
+    }
+  }
+
+  function moveLinkCategoryToPointer(clientX) {
+    const draggedCategoryId = linkCategoryDrag.current?.categoryId
+
+    if (!draggedCategoryId) {
+      return
+    }
+
+    const dropTarget = getLinkCategoryDropTarget(clientX)
+
+    if (!dropTarget) {
+      return
+    }
+
+    setLinkCategories((currentCategories) => {
+      const reorderedCategories = reorderLinkCategories(
+        currentCategories,
+        draggedCategoryId,
+        dropTarget.targetCategoryId,
+        dropTarget.side,
+      )
+      linkCategoryDrag.current = {
+        ...linkCategoryDrag.current,
+        reorderedCategories,
+      }
+
+      return reorderedCategories
+    })
+  }
+
+  function handleLinkCategoryPointerDown(event, categoryId) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    linkCategoryDrag.current = {
+      categoryId,
+      originalCategories: linkCategoriesRef.current,
+      pointerId: event.pointerId,
+      reorderedCategories: linkCategoriesRef.current,
+    }
+    setDraggingCategoryId(categoryId)
+  }
+
+  function handleLinkCategoryPointerMove(event) {
+    if (linkCategoryDrag.current?.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.preventDefault()
+    moveLinkCategoryToPointer(event.clientX)
+  }
+
+  function handleLinkCategoryPointerUp(event) {
+    if (linkCategoryDrag.current?.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    handleLinkCategoryDragEnd()
+  }
+
+  function handleLinkCategoryDragEnd() {
+    const reorderedCategories = linkCategoryDrag.current?.reorderedCategories
+
+    setDraggingCategoryId(null)
+
+    if (!reorderedCategories) {
+      linkCategoryDrag.current = null
+      return
+    }
+
+    saveLinkCategoryOrder(reorderedCategories).finally(() => {
+      linkCategoryDrag.current = null
+    })
   }
 
   async function deleteLinkCategory(categoryId) {
@@ -576,7 +775,33 @@ function App() {
     }
   }
 
-  async function loadMarketIndices() {
+  const saveStickyNote = useCallback(async function saveStickyNote(note) {
+    if (!note) {
+      return
+    }
+
+    try {
+      const updatedNote = await request(`/api/sticky-notes/${note.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(note),
+      })
+      setStickyNotes((currentNotes) =>
+        currentNotes.map((currentNote) =>
+          currentNote.id === note.id
+            ? {
+                ...updatedNote,
+                color: getStickyNoteColor(updatedNote.color ?? note.color),
+              }
+            : currentNote,
+        ),
+      )
+      setPinboardError('')
+    } catch {
+      setPinboardError('Sticky note could not be saved.')
+    }
+  }, [request])
+
+  const loadMarketIndices = useCallback(async function loadMarketIndices() {
     try {
       const data = await request('/api/markets/indices')
       setMarketIndices(data)
@@ -584,14 +809,20 @@ function App() {
     } catch {
       setMarketStatus('Marktdaten konnten nicht geladen werden.')
     }
-  }
+  }, [request])
 
   useEffect(() => {
-    loadTasks()
-    loadStickyNotes()
-    loadLinkCollection()
-    loadMarketIndices()
-  }, [])
+    queueMicrotask(() => {
+      loadTasks()
+      loadStickyNotes()
+      loadLinkCollection()
+      loadMarketIndices()
+    })
+  }, [loadLinkCollection, loadMarketIndices, loadStickyNotes, loadTasks])
+
+  useEffect(() => {
+    linkCategoriesRef.current = linkCategories
+  }, [linkCategories])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -656,13 +887,15 @@ function App() {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
     }
-  }, [stickyNotes])
+  }, [saveStickyNote, stickyNotes])
 
   useEffect(() => {
     const controller = new AbortController()
 
     if (!navigator.geolocation) {
-      setWeatherStatus('Standort ist im Browser nicht verfügbar.')
+      queueMicrotask(() => {
+        setWeatherStatus('Standort ist im Browser nicht verfügbar.')
+      })
       return () => controller.abort()
     }
 
@@ -733,15 +966,17 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const activeLeavingTimeouts = leavingTimeouts.current
+
     window.addEventListener('beforeunload', cleanupDoneTasks)
 
     return () => {
       window.removeEventListener('beforeunload', cleanupDoneTasks)
-      Object.values(leavingTimeouts.current).forEach((timeoutId) =>
+      Object.values(activeLeavingTimeouts).forEach((timeoutId) =>
         clearTimeout(timeoutId),
       )
     }
-  }, [])
+  }, [cleanupDoneTasks])
 
   async function createTask() {
     try {
@@ -880,32 +1115,6 @@ function App() {
     )
   }
 
-  async function saveStickyNote(note) {
-    if (!note) {
-      return
-    }
-
-    try {
-      const updatedNote = await request(`/api/sticky-notes/${note.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(note),
-      })
-      setStickyNotes((currentNotes) =>
-        currentNotes.map((currentNote) =>
-          currentNote.id === note.id
-            ? {
-                ...updatedNote,
-                color: getStickyNoteColor(updatedNote.color ?? note.color),
-              }
-            : currentNote,
-        ),
-      )
-      setPinboardError('')
-    } catch {
-      setPinboardError('Sticky note could not be saved.')
-    }
-  }
-
   async function deleteStickyNote(noteId) {
     try {
       await request(`/api/sticky-notes/${noteId}`, {
@@ -952,13 +1161,6 @@ function App() {
       zIndex,
     }
     setDraggingNoteId(noteId)
-  }
-
-  function cleanupDoneTasks() {
-    return fetch('/api/tasks/cleanup-completed', {
-      method: 'POST',
-      keepalive: true,
-    })
   }
 
   const visibleTasks = tasks.filter((task) =>
@@ -1192,14 +1394,6 @@ function App() {
                 .join(' ')}
               key={task.id}
               onClick={() => setSelectedTaskId(task.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  setSelectedTaskId(task.id)
-                }
-              }}
-              role="button"
-              tabIndex={0}
             >
               <div className="task-check">
                 <input
@@ -1228,6 +1422,7 @@ function App() {
                       updateTaskText(task, { title: event.target.value })
                     }
                     onClick={(event) => event.stopPropagation()}
+                    onFocus={() => setSelectedTaskId(task.id)}
                     placeholder="Title"
                     aria-label="Task title"
                   />
@@ -1247,6 +1442,7 @@ function App() {
                       updateTaskText(task, { description: event.target.value })
                     }
                     onClick={(event) => event.stopPropagation()}
+                    onFocus={() => setSelectedTaskId(task.id)}
                     placeholder="Description"
                     aria-label="Task description"
                     rows={5}
@@ -1275,7 +1471,15 @@ function App() {
           {linkCollectionError && (
             <p className="links-error">{linkCollectionError}</p>
           )}
-          <div className="links-grid">
+          <div
+            className={[
+              'links-grid',
+              draggingCategoryId !== null ? 'is-category-dragging' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            ref={linksGridRef}
+          >
             {linkCategories.map((category) => {
               const categoryTiles = linkTiles.filter(
                 (tile) => tile.categoryId === category.id,
@@ -1283,11 +1487,42 @@ function App() {
 
               return (
                 <section
-                  className="link-column"
+                  className={[
+                    'link-column',
+                    draggingCategoryId === category.id ? 'is-dragging' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   aria-label={`${category.name || 'Neue Kategorie'} links`}
+                  data-category-id={category.id}
                   key={category.id}
                 >
                   <header className="link-category-header">
+                    <div
+                      className="link-category-drag-zone"
+                      aria-label="Kategorie verschieben"
+                      role="button"
+                      tabIndex={0}
+                      onPointerDown={(event) =>
+                        handleLinkCategoryPointerDown(event, category.id)
+                      }
+                      onPointerMove={handleLinkCategoryPointerMove}
+                      onPointerUp={handleLinkCategoryPointerUp}
+                      onPointerCancel={handleLinkCategoryPointerUp}
+                    />
+                    <button
+                      className="link-category-drag-handle"
+                      type="button"
+                      aria-label="Kategorie verschieben"
+                      onPointerDown={(event) =>
+                        handleLinkCategoryPointerDown(event, category.id)
+                      }
+                      onPointerMove={handleLinkCategoryPointerMove}
+                      onPointerUp={handleLinkCategoryPointerUp}
+                      onPointerCancel={handleLinkCategoryPointerUp}
+                    >
+                      ::
+                    </button>
                     <input
                       type="text"
                       value={category.name}

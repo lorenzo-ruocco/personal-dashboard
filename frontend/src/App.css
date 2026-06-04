@@ -744,6 +744,11 @@
   width: max-content;
 }
 
+.links-grid.is-category-dragging,
+.links-grid.is-category-dragging * {
+  cursor: grabbing;
+}
+
 .link-column {
   background: #1a1d23;
   border: 3px solid #000000;
@@ -753,13 +758,68 @@
   min-height: 280px;
 }
 
+.link-column.is-dragging {
+  opacity: 0.72;
+  transform: scale(0.985);
+}
+
 .link-category-header {
   align-items: center;
   border-bottom: 3px solid #000000;
+  cursor: default;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 38px;
-  padding: 10px;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  padding: 18px 10px 10px;
+  position: relative;
+}
+
+.link-category-drag-zone {
+  cursor: grab;
+  height: 24px;
+  left: 10px;
+  position: absolute;
+  right: 56px;
+  top: 0;
+  z-index: 2;
+}
+
+.link-category-drag-zone:hover {
+  background: rgba(20, 83, 189, 0.18);
+  cursor: grabbing;
+}
+
+.link-category-drag-zone:active {
+  cursor: grabbing;
+}
+
+.links-section .link-category-drag-handle {
+  align-items: center;
+  background: #2a3140;
+  border-color: #000000;
+  color: #ffffff;
+  cursor: grab;
+  display: flex;
+  font-size: 18px;
+  justify-content: center;
+  letter-spacing: 0;
+}
+
+.link-category-header:hover .link-category-drag-handle,
+.link-category-header:focus-within .link-category-drag-handle {
+  background: #1453bd;
+}
+
+.links-section .link-category-drag-handle:active {
+  cursor: grabbing;
+}
+
+.link-category-header input {
+  cursor: text;
+}
+
+.link-category-header button:not(.link-category-drag-handle) {
+  cursor: pointer;
 }
 
 .link-category-header input,
