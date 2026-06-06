@@ -188,6 +188,17 @@ function getLocalTargetType(target) {
   return 'APP'
 }
 
+function SpotifyLogo() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle cx="32" cy="32" r="30" />
+      <path d="M18 24c9-3 22-2 31 3" />
+      <path d="M20 32c8-2 19-2 27 3" />
+      <path d="M22 40c6-2 15-1 21 2" />
+    </svg>
+  )
+}
+
 function normalizeStickyNoteZIndexes(notes) {
   return notes
     .toSorted(
@@ -269,6 +280,13 @@ function App() {
   const [error, setError] = useState('')
   const [pinboardError, setPinboardError] = useState('')
   const [linkCollectionError, setLinkCollectionError] = useState('')
+  const [spotifyStatus, setSpotifyStatus] = useState('')
+  const [mediaStatus, setMediaStatus] = useState({
+    artist: '',
+    available: false,
+    playing: false,
+    title: '',
+  })
   const [draggingNoteId, setDraggingNoteId] = useState(null)
   const [draggingCategoryId, setDraggingCategoryId] = useState(null)
   const leavingTimeouts = useRef({})
@@ -277,6 +295,7 @@ function App() {
   const linksGridRef = useRef(null)
   const linkCategoriesRef = useRef([])
   const linkCategoryDrag = useRef(null)
+  const spotifyWindowRef = useRef(null)
 
   const request = useCallback(async function request(path, options = {}) {
     const response = await fetch(path, {
@@ -775,6 +794,58 @@ function App() {
     }
   }
 
+  function openSpotify() {
+    if (spotifyWindowRef.current && !spotifyWindowRef.current.closed) {
+      spotifyWindowRef.current.focus()
+      setSpotifyStatus('')
+      return
+    }
+
+    const width = Math.round(window.screen.availWidth * 0.62)
+    const height = window.screen.availHeight
+    const left = window.screen.availLeft ?? 0
+    const top = window.screen.availTop ?? 0
+    const spotifyWindow = window.open(
+      '',
+      '_blank',
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`,
+    )
+
+    if (!spotifyWindow || spotifyWindow === window) {
+      setSpotifyStatus('Spotify-Popup wurde vom Browser blockiert.')
+      return
+    }
+
+    spotifyWindow.opener = null
+    spotifyWindow.location.replace('https://open.spotify.com/')
+    spotifyWindowRef.current = spotifyWindow
+    spotifyWindow.focus()
+    setSpotifyStatus('')
+  }
+
+  const loadMediaStatus = useCallback(async function loadMediaStatus() {
+    try {
+      const status = await request('/api/media-control/status')
+      setMediaStatus(status)
+      setSpotifyStatus('')
+    } catch {
+      setSpotifyStatus('Medienstatus ist nicht erreichbar.')
+    }
+  }, [request])
+
+  async function controlSpotify(action) {
+    try {
+      await request('/api/media-control', {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      })
+      setSpotifyStatus('')
+      window.setTimeout(loadMediaStatus, 350)
+    } catch {
+      setSpotifyStatus('Mediensteuerung ist nicht erreichbar.')
+    }
+  }
+
   const saveStickyNote = useCallback(async function saveStickyNote(note) {
     if (!note) {
       return
@@ -817,8 +888,21 @@ function App() {
       loadStickyNotes()
       loadLinkCollection()
       loadMarketIndices()
+      loadMediaStatus()
     })
-  }, [loadLinkCollection, loadMarketIndices, loadStickyNotes, loadTasks])
+  }, [
+    loadLinkCollection,
+    loadMarketIndices,
+    loadMediaStatus,
+    loadStickyNotes,
+    loadTasks,
+  ])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(loadMediaStatus, 2000)
+
+    return () => window.clearInterval(intervalId)
+  }, [loadMediaStatus])
 
   useEffect(() => {
     linkCategoriesRef.current = linkCategories
@@ -1266,6 +1350,69 @@ function App() {
               })}
             </div>
           )}
+        </section>
+
+        <section className="spotify-panel" aria-label="Spotify player">
+          <button
+            className="spotify-logo-tile"
+            type="button"
+            aria-label="Spotify oeffnen"
+            onClick={openSpotify}
+          >
+            <SpotifyLogo />
+          </button>
+          <div className="spotify-player-card">
+            <div className="spotify-player-top">
+              <span>Spotify</span>
+            </div>
+            <div className="spotify-track">
+              <strong>{mediaStatus.title || 'Kein Lied aktiv'}</strong>
+              <span>{mediaStatus.artist || 'Spotify'}</span>
+            </div>
+            <div className="spotify-controls">
+              <button
+                type="button"
+                aria-label="Vorheriger Song"
+                onClick={() => controlSpotify('previous')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M6 5v14" />
+                  <path d="m19 6-10 6 10 6V6Z" />
+                </svg>
+              </button>
+              <button
+                className="spotify-play-button"
+                type="button"
+                aria-label={mediaStatus.playing ? 'Song anhalten' : 'Song abspielen'}
+                onClick={() => controlSpotify('play-pause')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  {mediaStatus.playing ? (
+                    <>
+                      <path d="M9 7v10" />
+                      <path d="M15 7v10" />
+                    </>
+                  ) : (
+                    <path d="m8 6 10 6-10 6V6Z" />
+                  )}
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Naechster Song"
+                onClick={() => controlSpotify('next')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="m5 6 10 6-10 6V6Z" />
+                  <path d="M18 5v14" />
+                </svg>
+              </button>
+            </div>
+            <div className="spotify-progress" aria-hidden="true">
+              <span />
+            </div>
+            {spotifyStatus && <p>{spotifyStatus}</p>}
+          </div>
         </section>
         </section>
 
