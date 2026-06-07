@@ -1,8 +1,8 @@
 package com.lorenzo.dashboard.controller;
 
 import com.lorenzo.dashboard.model.MediaControlRequest;
-import com.lorenzo.dashboard.model.MediaStatus;
 import com.lorenzo.dashboard.service.MediaControlService;
+import com.lorenzo.dashboard.service.MediaStatusMonitorService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 
@@ -19,20 +20,19 @@ import java.io.IOException;
 public class MediaControlController {
 
     private final MediaControlService mediaControlService;
+    private final MediaStatusMonitorService mediaStatusMonitorService;
 
-    public MediaControlController(MediaControlService mediaControlService) {
+    public MediaControlController(
+            MediaControlService mediaControlService,
+            MediaStatusMonitorService mediaStatusMonitorService
+    ) {
         this.mediaControlService = mediaControlService;
+        this.mediaStatusMonitorService = mediaStatusMonitorService;
     }
 
-    @GetMapping("/status/{provider}")
-    public ResponseEntity<MediaStatus> getMediaStatus(@PathVariable String provider) {
-        try {
-            return ResponseEntity.ok(mediaControlService.getMediaStatus(provider));
-        } catch (IllegalArgumentException exception) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-        } catch (IOException exception) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+    @GetMapping("/status-stream")
+    public SseEmitter streamMediaStatus() {
+        return mediaStatusMonitorService.subscribe();
     }
 
     @PostMapping("/open/{provider}")

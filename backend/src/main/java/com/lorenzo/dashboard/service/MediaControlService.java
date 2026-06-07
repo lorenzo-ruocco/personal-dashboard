@@ -1,6 +1,5 @@
 package com.lorenzo.dashboard.service;
 
-import com.lorenzo.dashboard.model.MediaStatus;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -33,53 +32,6 @@ public class MediaControlService {
                 """.formatted(sourcePattern, operation);
 
         runPowerShell(encodePowerShellCommand(command));
-    }
-
-    public MediaStatus getMediaStatus(String provider) throws IOException {
-        ensureWindows();
-        String sourcePattern = getSourcePattern(provider);
-
-        String command = """
-                Add-Type -AssemblyName System.Runtime.WindowsRuntime;
-                $operationMethod = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-                    Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } |
-                    Select-Object -First 1;
-                function Await-Operation($operation, $resultType) {
-                    $task = $operationMethod.MakeGenericMethod($resultType).Invoke($null, @($operation));
-                    $task.Wait();
-                    return $task.Result;
-                }
-                $managerType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime];
-                $propertiesType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType=WindowsRuntime];
-                $manager = Await-Operation ($managerType::RequestAsync()) $managerType;
-                $session = $manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match '%s' } | Select-Object -First 1;
-                if ($null -eq $session) {
-                    '-';
-                    '-';
-                    'false';
-                    'false';
-                    exit 0;
-                }
-                $properties = Await-Operation ($session.TryGetMediaPropertiesAsync()) $propertiesType;
-                $playing = $session.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing';
-                [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$properties.Title));
-                [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$properties.Artist));
-                $playing.ToString().ToLowerInvariant();
-                'true';
-                """.formatted(sourcePattern);
-        String output = runPowerShell(encodePowerShellCommand(command));
-        String[] values = output.strip().split("\\R", -1);
-
-        if (values.length < 4) {
-            throw new IOException("Media status could not be parsed: " + output);
-        }
-
-        return new MediaStatus(
-                decodeBase64(values[0]),
-                decodeBase64(values[1]),
-                Boolean.parseBoolean(values[2]),
-                Boolean.parseBoolean(values[3])
-        );
     }
 
     public void openMediaWindow(String provider) throws IOException {
@@ -137,14 +89,6 @@ public class MediaControlService {
 
     private String encodePowerShellCommand(String command) {
         return Base64.getEncoder().encodeToString(command.getBytes(StandardCharsets.UTF_16LE));
-    }
-
-    private String decodeBase64(String value) {
-        if (value.isBlank() || value.trim().equals("-")) {
-            return "";
-        }
-
-        return new String(Base64.getDecoder().decode(value.trim()), StandardCharsets.UTF_8);
     }
 
     private void ensureWindows() throws IOException {

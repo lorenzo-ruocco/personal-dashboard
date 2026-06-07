@@ -868,21 +868,6 @@ function App() {
     }
   }
 
-  const loadMediaStatuses = useCallback(async function loadMediaStatuses() {
-    try {
-      const [spotifyStatusData, youtubeStatusData] = await Promise.all([
-        request('/api/media-control/status/spotify'),
-        request('/api/media-control/status/youtube'),
-      ])
-      setSpotifyMediaStatus(spotifyStatusData)
-      setYoutubeMediaStatus(youtubeStatusData)
-      setSpotifyStatus('')
-      setYoutubeStatus('')
-    } catch {
-      setSpotifyStatus('Medienstatus ist nicht erreichbar.')
-    }
-  }, [request])
-
   async function controlSpotify(action) {
     try {
       await request('/api/media-control', {
@@ -890,7 +875,6 @@ function App() {
         body: JSON.stringify({ action, provider: 'spotify' }),
       })
       setSpotifyStatus('')
-      window.setTimeout(loadMediaStatuses, 350)
     } catch {
       setSpotifyStatus('Mediensteuerung ist nicht erreichbar.')
     }
@@ -903,7 +887,6 @@ function App() {
         body: JSON.stringify({ action, provider: 'youtube' }),
       })
       setYoutubeStatus('')
-      window.setTimeout(loadMediaStatuses, 350)
     } catch {
       setYoutubeStatus('Mediensteuerung ist nicht erreichbar.')
     }
@@ -951,21 +934,31 @@ function App() {
       loadStickyNotes()
       loadLinkCollection()
       loadMarketIndices()
-      loadMediaStatuses()
     })
   }, [
     loadLinkCollection,
     loadMarketIndices,
-    loadMediaStatuses,
     loadStickyNotes,
     loadTasks,
   ])
 
   useEffect(() => {
-    const intervalId = window.setInterval(loadMediaStatuses, 2000)
+    const mediaStatusStream = new EventSource('/api/media-control/status-stream')
 
-    return () => window.clearInterval(intervalId)
-  }, [loadMediaStatuses])
+    mediaStatusStream.addEventListener('media-status', (event) => {
+      const statuses = JSON.parse(event.data)
+      setSpotifyMediaStatus(statuses.spotify)
+      setYoutubeMediaStatus(statuses.youtube)
+      setSpotifyStatus('')
+      setYoutubeStatus('')
+    })
+    mediaStatusStream.onerror = () => {
+      setSpotifyStatus('Medienstatus ist nicht erreichbar.')
+      setYoutubeStatus('Medienstatus ist nicht erreichbar.')
+    }
+
+    return () => mediaStatusStream.close()
+  }, [])
 
   useEffect(() => {
     linkCategoriesRef.current = linkCategories
