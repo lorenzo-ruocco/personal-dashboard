@@ -11,30 +11,33 @@ import java.util.Locale;
 @Service
 public class MediaControlService {
 
-    private static final int KEYEVENTF_KEYUP = 0x0002;
-
-    public void sendMediaCommand(String action) throws IOException {
-        int virtualKey = getVirtualKey(action);
-        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-
-        if (!osName.contains("win")) {
-            throw new IOException("Media controls are only supported on Windows");
-        }
-
+    public void sendMediaCommand(String provider, String action) throws IOException {
+        ensureWindows();
+        String sourcePattern = getSourcePattern(provider);
+        String operation = getSessionOperation(action);
         String command = """
-                Add-Type -Namespace Native -Name Keyboard -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);';
-                [Native.Keyboard]::keybd_event(%d, 0, 0, [UIntPtr]::Zero);
-                [Native.Keyboard]::keybd_event(%d, 0, %d, [UIntPtr]::Zero);
-                """.formatted(virtualKey, virtualKey, KEYEVENTF_KEYUP);
-        String encodedCommand = Base64.getEncoder().encodeToString(
-                command.getBytes(StandardCharsets.UTF_16LE)
-        );
+                Add-Type -AssemblyName System.Runtime.WindowsRuntime;
+                $operationMethod = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+                    Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } |
+                    Select-Object -First 1;
+                function Await-Operation($operation, $resultType) {
+                    $task = $operationMethod.MakeGenericMethod($resultType).Invoke($null, @($operation));
+                    $task.Wait();
+                    return $task.Result;
+                }
+                $managerType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime];
+                $manager = Await-Operation ($managerType::RequestAsync()) $managerType;
+                $session = $manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match '%s' } | Select-Object -First 1;
+                if ($null -eq $session) { exit 2; }
+                Await-Operation ($session.%s()) ([bool]) | Out-Null;
+                """.formatted(sourcePattern, operation);
 
-        runPowerShell(encodedCommand);
+        runPowerShell(encodePowerShellCommand(command));
     }
 
-    public MediaStatus getMediaStatus() throws IOException {
+    public MediaStatus getMediaStatus(String provider) throws IOException {
         ensureWindows();
+        String sourcePattern = getSourcePattern(provider);
 
         String command = """
                 Add-Type -AssemblyName System.Runtime.WindowsRuntime;
@@ -49,7 +52,7 @@ public class MediaControlService {
                 $managerType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime];
                 $propertiesType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType=WindowsRuntime];
                 $manager = Await-Operation ($managerType::RequestAsync()) $managerType;
-                $session = $manager.GetCurrentSession();
+                $session = $manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -match '%s' } | Select-Object -First 1;
                 if ($null -eq $session) {
                     '-';
                     '-';
@@ -63,7 +66,7 @@ public class MediaControlService {
                 [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$properties.Artist));
                 $playing.ToString().ToLowerInvariant();
                 'true';
-                """;
+                """.formatted(sourcePattern);
         String output = runPowerShell(encodePowerShellCommand(command));
         String[] values = output.strip().split("\\R", -1);
 
@@ -77,6 +80,33 @@ public class MediaControlService {
                 Boolean.parseBoolean(values[2]),
                 Boolean.parseBoolean(values[3])
         );
+    }
+
+    public void openMediaWindow(String provider) throws IOException {
+        ensureWindows();
+        String normalizedProvider = normalizeProvider(provider);
+
+        if (!"youtube".equals(normalizedProvider) && !"whatsapp".equals(normalizedProvider)) {
+            throw new IllegalArgumentException("Unsupported media provider");
+        }
+
+        String executable = "youtube".equals(normalizedProvider) ? "msedge.exe" : "chrome.exe";
+        String url = "youtube".equals(normalizedProvider)
+                ? "https://www.youtube.com/"
+                : "https://web.whatsapp.com/";
+        String command = """
+                Add-Type -AssemblyName System.Windows.Forms;
+                $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea;
+                $width = [Math]::Round($area.Width * 0.62);
+                Start-Process %s -ArgumentList @(
+                    '--app=%s',
+                    '--new-window',
+                    "--window-size=$width,$($area.Height)",
+                    "--window-position=$($area.Left),$($area.Top)"
+                );
+                """.formatted(executable, url);
+
+        runPowerShell(encodePowerShellCommand(command));
     }
 
     private String runPowerShell(String encodedCommand) throws IOException {
@@ -125,16 +155,28 @@ public class MediaControlService {
         }
     }
 
-    private int getVirtualKey(String action) {
+    private String getSessionOperation(String action) {
         String normalizedAction = action == null
                 ? ""
                 : action.trim().toLowerCase(Locale.ROOT);
 
         return switch (normalizedAction) {
-            case "previous" -> 0xB1;
-            case "play-pause" -> 0xB3;
-            case "next" -> 0xB0;
+            case "previous" -> "TrySkipPreviousAsync";
+            case "play-pause" -> "TryTogglePlayPauseAsync";
+            case "next" -> "TrySkipNextAsync";
             default -> throw new IllegalArgumentException("Unsupported media action");
         };
+    }
+
+    private String getSourcePattern(String provider) {
+        return switch (normalizeProvider(provider)) {
+            case "spotify" -> "Spotify|Chrome";
+            case "youtube" -> "YouTube|MSEdge";
+            default -> throw new IllegalArgumentException("Unsupported media provider");
+        };
+    }
+
+    private String normalizeProvider(String provider) {
+        return provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
     }
 }

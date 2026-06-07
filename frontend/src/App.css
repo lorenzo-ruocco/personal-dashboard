@@ -688,6 +688,19 @@
   max-width: 390px;
 }
 
+.app-panels-row {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(3, minmax(390px, 1fr));
+  margin-top: 26px;
+  width: max-content;
+}
+
+.app-panels-row .spotify-panel {
+  margin-top: 0;
+  width: 390px;
+}
+
 .spotify-logo-tile {
   align-items: center;
   background: #1db954;
@@ -724,6 +737,114 @@
   outline: 0;
 }
 
+.youtube-logo-tile {
+  align-items: center;
+  background: #ffffff;
+  border: 3px solid #2832ff;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  height: 56px;
+  justify-content: center;
+  padding: 0;
+  width: 56px;
+}
+
+.youtube-logo-tile svg {
+  display: block;
+  height: 42px;
+  width: 42px;
+}
+
+.youtube-logo-tile rect {
+  fill: #ff0033;
+}
+
+.youtube-logo-tile path {
+  fill: #ffffff;
+}
+
+.youtube-logo-tile:hover,
+.youtube-logo-tile:focus {
+  background: #ececec;
+  outline: 0;
+}
+
+.whatsapp-logo-tile {
+  align-items: center;
+  background: #25d366;
+  border: 3px solid #2832ff;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  height: 56px;
+  justify-content: center;
+  padding: 0;
+  width: 56px;
+}
+
+.whatsapp-logo-tile svg {
+  display: block;
+  height: 44px;
+  width: 44px;
+}
+
+.whatsapp-logo-tile circle {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 4;
+}
+
+.whatsapp-logo-tile path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+}
+
+.whatsapp-logo-tile:hover,
+.whatsapp-logo-tile:focus {
+  background: #36e477;
+  outline: 0;
+}
+
+.whatsapp-card {
+  background:
+    linear-gradient(90deg, rgba(25, 55, 43, 0.95), rgba(48, 83, 67, 0.9)),
+    #14251d;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 22px;
+  color: #ffffff;
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  min-height: 96px;
+  min-width: 0;
+  padding: 16px;
+  text-align: center;
+}
+
+.whatsapp-card strong {
+  font-size: 17px;
+}
+
+.whatsapp-card span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.whatsapp-card small {
+  color: #ffb5b5;
+  font-weight: 700;
+}
+
+.whatsapp-card:hover,
+.whatsapp-card:focus {
+  background: #244d3a;
+  outline: 0;
+}
+
 .spotify-player-card {
   background:
     linear-gradient(90deg, rgba(31, 38, 33, 0.9), rgba(82, 82, 70, 0.82)),
@@ -736,6 +857,12 @@
   gap: 8px;
   min-width: 0;
   padding: 10px 16px 14px;
+}
+
+.youtube-player-card {
+  background:
+    linear-gradient(90deg, rgba(46, 31, 31, 0.92), rgba(88, 58, 58, 0.84)),
+    #1b1414;
 }
 
 .spotify-player-top {
@@ -876,7 +1003,7 @@
   color: #ffffff;
   min-height: 100vh;
   overflow-x: auto;
-  padding: 180px 36px 48px;
+  padding: 12px 36px 48px;
   scrollbar-color: #08317e #0a0d13;
   scrollbar-width: thin;
 }
@@ -1156,8 +1283,14 @@
     padding: 24px;
   }
 
+  .app-panels-row {
+    grid-template-columns: 1fr;
+    max-width: 390px;
+    width: 100%;
+  }
+
   .links-section {
-    padding: 128px 24px 32px;
+    padding: 12px 24px 32px;
   }
 
   .links-section h2 {

@@ -199,6 +199,25 @@ function SpotifyLogo() {
   )
 }
 
+function YoutubeLogo() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <rect x="4" y="12" width="56" height="40" rx="12" />
+      <path d="m27 23 15 9-15 9V23Z" />
+    </svg>
+  )
+}
+
+function WhatsappLogo() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle cx="32" cy="30" r="23" />
+      <path d="m17 49 3-11" />
+      <path d="M23 19c2-2 5 2 6 5 1 2-2 3-2 5 2 4 5 7 9 8 2 0 3-3 5-2 3 1 7 4 5 7-2 4-7 5-11 4-10-3-18-11-20-21-1-4 1-7 4-8 2-1 3 0 4 2Z" />
+    </svg>
+  )
+}
+
 function normalizeStickyNoteZIndexes(notes) {
   return notes
     .toSorted(
@@ -281,7 +300,15 @@ function App() {
   const [pinboardError, setPinboardError] = useState('')
   const [linkCollectionError, setLinkCollectionError] = useState('')
   const [spotifyStatus, setSpotifyStatus] = useState('')
-  const [mediaStatus, setMediaStatus] = useState({
+  const [youtubeStatus, setYoutubeStatus] = useState('')
+  const [whatsappStatus, setWhatsappStatus] = useState('')
+  const [spotifyMediaStatus, setSpotifyMediaStatus] = useState({
+    artist: '',
+    available: false,
+    playing: false,
+    title: '',
+  })
+  const [youtubeMediaStatus, setYoutubeMediaStatus] = useState({
     artist: '',
     available: false,
     playing: false,
@@ -823,11 +850,34 @@ function App() {
     setSpotifyStatus('')
   }
 
-  const loadMediaStatus = useCallback(async function loadMediaStatus() {
+  async function openYoutube() {
     try {
-      const status = await request('/api/media-control/status')
-      setMediaStatus(status)
+      await request('/api/media-control/open/youtube', { method: 'POST' })
+      setYoutubeStatus('')
+    } catch {
+      setYoutubeStatus('YouTube-Fenster konnte nicht geoeffnet werden.')
+    }
+  }
+
+  async function openWhatsapp() {
+    try {
+      await request('/api/media-control/open/whatsapp', { method: 'POST' })
+      setWhatsappStatus('')
+    } catch {
+      setWhatsappStatus('WhatsApp-Fenster konnte nicht geoeffnet werden.')
+    }
+  }
+
+  const loadMediaStatuses = useCallback(async function loadMediaStatuses() {
+    try {
+      const [spotifyStatusData, youtubeStatusData] = await Promise.all([
+        request('/api/media-control/status/spotify'),
+        request('/api/media-control/status/youtube'),
+      ])
+      setSpotifyMediaStatus(spotifyStatusData)
+      setYoutubeMediaStatus(youtubeStatusData)
       setSpotifyStatus('')
+      setYoutubeStatus('')
     } catch {
       setSpotifyStatus('Medienstatus ist nicht erreichbar.')
     }
@@ -837,12 +887,25 @@ function App() {
     try {
       await request('/api/media-control', {
         method: 'POST',
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, provider: 'spotify' }),
       })
       setSpotifyStatus('')
-      window.setTimeout(loadMediaStatus, 350)
+      window.setTimeout(loadMediaStatuses, 350)
     } catch {
       setSpotifyStatus('Mediensteuerung ist nicht erreichbar.')
+    }
+  }
+
+  async function controlYoutube(action) {
+    try {
+      await request('/api/media-control', {
+        method: 'POST',
+        body: JSON.stringify({ action, provider: 'youtube' }),
+      })
+      setYoutubeStatus('')
+      window.setTimeout(loadMediaStatuses, 350)
+    } catch {
+      setYoutubeStatus('Mediensteuerung ist nicht erreichbar.')
     }
   }
 
@@ -888,21 +951,21 @@ function App() {
       loadStickyNotes()
       loadLinkCollection()
       loadMarketIndices()
-      loadMediaStatus()
+      loadMediaStatuses()
     })
   }, [
     loadLinkCollection,
     loadMarketIndices,
-    loadMediaStatus,
+    loadMediaStatuses,
     loadStickyNotes,
     loadTasks,
   ])
 
   useEffect(() => {
-    const intervalId = window.setInterval(loadMediaStatus, 2000)
+    const intervalId = window.setInterval(loadMediaStatuses, 2000)
 
     return () => window.clearInterval(intervalId)
-  }, [loadMediaStatus])
+  }, [loadMediaStatuses])
 
   useEffect(() => {
     linkCategoriesRef.current = linkCategories
@@ -1352,7 +1415,8 @@ function App() {
           )}
         </section>
 
-        <section className="spotify-panel" aria-label="Spotify player">
+        <div className="app-panels-row">
+        <section className="spotify-panel spotify-primary-panel" aria-label="Spotify player">
           <button
             className="spotify-logo-tile"
             type="button"
@@ -1366,8 +1430,8 @@ function App() {
               <span>Spotify</span>
             </div>
             <div className="spotify-track">
-              <strong>{mediaStatus.title || 'Kein Lied aktiv'}</strong>
-              <span>{mediaStatus.artist || 'Spotify'}</span>
+              <strong>{spotifyMediaStatus.title || 'Kein Lied aktiv'}</strong>
+              <span>{spotifyMediaStatus.artist || 'Spotify'}</span>
             </div>
             <div className="spotify-controls">
               <button
@@ -1383,11 +1447,11 @@ function App() {
               <button
                 className="spotify-play-button"
                 type="button"
-                aria-label={mediaStatus.playing ? 'Song anhalten' : 'Song abspielen'}
+                aria-label={spotifyMediaStatus.playing ? 'Song anhalten' : 'Song abspielen'}
                 onClick={() => controlSpotify('play-pause')}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  {mediaStatus.playing ? (
+                  {spotifyMediaStatus.playing ? (
                     <>
                       <path d="M9 7v10" />
                       <path d="M15 7v10" />
@@ -1414,6 +1478,90 @@ function App() {
             {spotifyStatus && <p>{spotifyStatus}</p>}
           </div>
         </section>
+
+        <section className="spotify-panel" aria-label="YouTube player">
+          <button
+            className="youtube-logo-tile"
+            type="button"
+            aria-label="YouTube oeffnen"
+            onClick={openYoutube}
+          >
+            <YoutubeLogo />
+          </button>
+          <div className="spotify-player-card youtube-player-card">
+            <div className="spotify-player-top">
+              <span>YouTube</span>
+            </div>
+            <div className="spotify-track">
+              <strong>{youtubeMediaStatus.title || 'Kein Video aktiv'}</strong>
+              <span>{youtubeMediaStatus.artist || 'YouTube'}</span>
+            </div>
+            <div className="spotify-controls">
+              <button
+                type="button"
+                aria-label="Vorheriges Video"
+                onClick={() => controlYoutube('previous')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M6 5v14" />
+                  <path d="m19 6-10 6 10 6V6Z" />
+                </svg>
+              </button>
+              <button
+                className="spotify-play-button"
+                type="button"
+                aria-label={youtubeMediaStatus.playing ? 'Video anhalten' : 'Video abspielen'}
+                onClick={() => controlYoutube('play-pause')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  {youtubeMediaStatus.playing ? (
+                    <>
+                      <path d="M9 7v10" />
+                      <path d="M15 7v10" />
+                    </>
+                  ) : (
+                    <path d="m8 6 10 6-10 6V6Z" />
+                  )}
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Naechstes Video"
+                onClick={() => controlYoutube('next')}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="m5 6 10 6-10 6V6Z" />
+                  <path d="M18 5v14" />
+                </svg>
+              </button>
+            </div>
+            <div className="spotify-progress" aria-hidden="true">
+              <span />
+            </div>
+            {youtubeStatus && <p>{youtubeStatus}</p>}
+          </div>
+        </section>
+
+        <section className="spotify-panel" aria-label="WhatsApp">
+          <button
+            className="whatsapp-logo-tile"
+            type="button"
+            aria-label="WhatsApp oeffnen"
+            onClick={openWhatsapp}
+          >
+            <WhatsappLogo />
+          </button>
+          <button
+            className="whatsapp-card"
+            type="button"
+            onClick={openWhatsapp}
+          >
+            <strong>WhatsApp Web</strong>
+            <span>In Google Chrome öffnen</span>
+            {whatsappStatus && <small>{whatsappStatus}</small>}
+          </button>
+        </section>
+        </div>
         </section>
 
         <section className="pinboard" aria-label="Sticky notes">
